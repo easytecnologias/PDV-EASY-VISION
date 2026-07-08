@@ -1576,6 +1576,31 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                 self.send_error(500, str(e))
             return
 
+        # ── POST /gemini-reconcile-cupom?cupom=XXXXX&token=... → reconcilia contagem (SHADOW: nao alerta)
+        if path == '/gemini-reconcile-cupom':
+            if not self._check_token(params): return
+            cupom_num = params.get("cupom", [""])[0]
+            if not cupom_num:
+                self.send_error(400, "cupom obrigatorio")
+                return
+            try:
+                result = _reconciliar_cupom(cupom_num)
+                # SHADOW MODE: apenas loga, NAO posta evento nem gera alerta no dashboard
+                print("[reconcile-shadow] cupom=%s reg=%s fis=%s delta=%s -> %s | %s" % (
+                    cupom_num, result.get("registrados"), result.get("fisicos"),
+                    result.get("delta"), result.get("veredito") or result.get("erro"),
+                    (result.get("gemini_texto") or "")[:60]), flush=True)
+                body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+
         # ── POST /reset-pipeline?token=... → zera vlm_stats e marca cupons atuais como processados
         if path == '/reset-pipeline':
             if not self._check_token(params): return
@@ -2493,14 +2518,16 @@ def _gemini_analyze_cupom(cupom_num, manual=False):
     }
 
 
-def _baixar_clip_dvr(ts_str, before=2, after=3):
-    """Baixa clip de vídeo do DVR no intervalo [ts-before, ts+after]. Retorna bytes ou None."""
-    try:
-        ts_dt = datetime.datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return None
-    start = (ts_dt - datetime.timedelta(seconds=before)).strftime("%Y-%m-%d %H:%M:%S")
-    end   = (ts_dt + datetime.timedelta(seconds=after)).strftime("%Y-%m-%d %H:%M:%S")
+def _baixar_clip_dvr(ts_str=None, before=2, after=3, start=None, end=None):
+    """Baixa clip de vídeo do DVR. Se start/end forem dados, usa o intervalo explícito;
+    senão usa [ts-before, ts+after]. Retorna bytes ou None."""
+    if not (start and end):
+        try:
+            ts_dt = datetime.datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+        start = (ts_dt - datetime.timedelta(seconds=before)).strftime("%Y-%m-%d %H:%M:%S")
+        end   = (ts_dt + datetime.timedelta(seconds=after)).strftime("%Y-%m-%d %H:%M:%S")
     dvr_url = (
         "http://%s/cgi-bin/loadfile.cgi?action=startLoad&channel=%s&startTime=%s&endTime=%s"
     ) % (HOST, CHANNEL, urllib.parse.quote(start), urllib.parse.quote(end))
@@ -2654,6 +2681,104 @@ def _gemini_call_vision_video(video_bytes, produto, valor):
     suspeito = "SUSPEITO" in texto.upper() and "INCONCLUSIVO" not in texto.upper()
     inconcl  = "INCONCLUSIVO" in texto.upper()
     return texto, suspeito, inconcl, in_tok, out_tok, ms, file_name
+
+
+# ── Reconciliacao de contagem (sweethearting: item passou sem bipar) ──────────
+def _cupom_intervalo(cupom_num):
+    """Le o spy file e retorna (date_str, open_ts, close_ts, registrados) do cupom.
+    open/close em 'YYYY-MM-DD HH:MM:SS'. registrados = soma das quantidades dos VITs."""
+    hoje = datetime.date.today()
+    for dias in range(7):
+        dt = hoje - datetime.timedelta(days=dias)
+        path = _spy_path(dt)
+        if not path.exists():
+            continue
+        date_str = dt.strftime('%Y-%m-%d')
+        dentro, open_ts, registrados = False, None, 0.0
+        for raw in path.read_text(errors='replace').splitlines():
+            raw = raw.strip().rstrip('\r')
+            m = LINE_RE.match(raw)
+            if not m:
+                continue
+            ts, event, body = m.group(1), m.group(2), m.group(3)
+            fields = _parse_fields(body)
+            if event == 'ABRECUPOM' and fields.get('Cod') == str(cupom_num):
+                dentro, open_ts, registrados = True, ts, 0.0
+            elif event == 'FECHACUPOM' and fields.get('Cod') == str(cupom_num):
+                open_full  = ("%s %s" % (date_str, open_ts)) if open_ts else None
+                close_full = "%s %s" % (date_str, ts)
+                return date_str, open_full, close_full, int(round(registrados))
+            elif dentro and event == 'VIT':
+                try:
+                    registrados += float(fields.get('Quant', '1').replace(',', '.'))
+                except Exception:
+                    registrados += 1
+    return None, None, None, 0
+
+
+def _gemini_contar_scanner(video_bytes):
+    """Conta produtos DISTINTOS que cruzam o scanner no clip. Retorna (n, texto, in_tok, out_tok, ms).
+    n = -1 se nao deu para contar."""
+    import urllib.request as _ur, re as _re
+    GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+    if not GEMINI_KEY:
+        raise RuntimeError("GEMINI_API_KEY nao configurada")
+    file_uri, _file_name = _gemini_upload_file(video_bytes)
+    prompt = (
+        "Camera de teto de supermercado no caixa - clipe cobrindo um cupom inteiro.\n"
+        "Conte quantos PRODUTOS DISTINTOS o operador passa pela esteira/scanner neste video "
+        "(itens manipulados ou deslizados sobre o scanner). "
+        "Conte produtos inteiros, nao pedacos nem partes do mesmo item. "
+        "Ignore maos vazias, sacolas plasticas e produtos parados ao fundo.\n"
+        "Responda APENAS com um numero inteiro. Nada mais."
+    )
+    payload = json.dumps({
+        "contents": [{"parts": [
+            {"file_data": {"mime_type": "video/mp4", "file_uri": file_uri}},
+            {"text": prompt},
+        ]}],
+        "generationConfig": {"maxOutputTokens": 20, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}},
+    }).encode()
+    url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s" % (
+        _GEMINI_MODEL, GEMINI_KEY)
+    req = _ur.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    t0 = time.time()
+    resp = json.loads(_ur.urlopen(req, timeout=90).read())
+    ms = int((time.time() - t0) * 1000)
+    texto = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+    usage = resp.get("usageMetadata", {})
+    mnum = _re.search(r'\d+', texto)
+    n = int(mnum.group()) if mnum else -1
+    return n, texto, usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0), ms
+
+
+def _reconciliar_cupom(cupom_num):
+    """Reconcilia contagem fisica (video do cupom inteiro) vs registrada (VITs).
+    Retorna dict com veredito. NAO posta evento (shadow) — quem chama decide."""
+    date_str, open_full, close_full, registrados = _cupom_intervalo(cupom_num)
+    if not (open_full and close_full):
+        return {"cupom": cupom_num, "erro": "cupom nao encontrado no spy"}
+    _calibrate_dvr_offset()
+    off = _get_dvr_offset()
+    start_dvr = _ts_add_secs(open_full,  off - 3)
+    end_dvr   = _ts_add_secs(close_full, off + 3)
+    video = _baixar_clip_dvr(start=start_dvr, end=end_dvr)
+    if not video:
+        return {"cupom": cupom_num, "erro": "sem clip DVR", "registrados": registrados}
+    try:
+        fisicos, texto, in_tok, out_tok, ms = _gemini_contar_scanner(video)
+    except Exception as e:
+        return {"cupom": cupom_num, "erro": "gemini: %s" % e, "registrados": registrados}
+    delta = (fisicos - registrados) if fisicos >= 0 else 0
+    if fisicos < 0:    veredito = "INCONCLUSIVO"
+    elif delta >= 2:   veredito = "ITEM_NAO_REGISTRADO"   # evidencia forte -> suspeito real
+    elif delta == 1:   veredito = "REVISAO_LEVE"
+    else:              veredito = "OK"
+    return {
+        "cupom": cupom_num, "registrados": registrados, "fisicos": fisicos,
+        "delta": delta, "veredito": veredito, "gemini_texto": texto,
+        "janela": [open_full, close_full], "tokens": [in_tok, out_tok], "ms": ms,
+    }
 
 
 def _gemini_analyze_cupom_video(cupom_num, manual=False):
