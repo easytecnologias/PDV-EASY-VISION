@@ -2200,14 +2200,20 @@ def _dvr_calibration_loop():
             _calibrate_dvr_offset()
             with _dvr_offset_lock:
                 offset = _dvr_offset_seconds
-            if abs(offset) >= 1:
-                print("[dvr-calibrate] offset=%ds — corrigindo relogio DVR automaticamente" % offset, flush=True)
-                _set_dvr_clock(datetime.datetime.now())
+            # So reescreve o relogio do DVR em drift REAL (>=5s). O offset por software
+            # (_get_dvr_offset, recalibrado por cupom) ja compensa o resto — corrigir a
+            # cada -1s so causava thrashing e a janela de risco do duplo-salto (+30s).
+            if abs(offset) >= 5:
+                print("[dvr-calibrate] offset=%ds — corrigindo relogio DVR (drift real)" % offset, flush=True)
+                ok = _set_dvr_clock(datetime.datetime.now())
                 time.sleep(1)
                 _calibrate_dvr_offset()
                 with _dvr_offset_lock:
                     novo = _dvr_offset_seconds
-                print("[dvr-calibrate] relogio corrigido, novo offset=%ds" % novo, flush=True)
+                if not ok or abs(novo) > abs(offset):
+                    print("[dvr-calibrate] AVISO: correcao falhou/piorou (%ds -> %ds) — offset por software segue compensando" % (offset, novo), flush=True)
+                else:
+                    print("[dvr-calibrate] relogio corrigido, novo offset=%ds" % novo, flush=True)
         except Exception as e:
             print("[dvr-calibrate] erro: %s" % e, flush=True)
         time.sleep(180)   # verifica a cada 3 min (drift ~0.6s máximo)

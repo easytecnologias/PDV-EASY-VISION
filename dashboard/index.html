@@ -84,12 +84,6 @@
             <button class="nav-item nav-sub-item" data-view="auditIa">
               <i data-lucide="clipboard-check"></i><span>Auditoria IA</span>
             </button>
-            <button class="nav-item nav-sub-item" data-view="erroTecnico">
-              <i data-lucide="wrench"></i><span>Erro técnico IA</span>
-            </button>
-            <button class="nav-item nav-sub-item" data-view="ocorrencias">
-              <i data-lucide="file-text"></i><span>Ocorrências</span>
-            </button>
             <button class="nav-item nav-sub-item" data-view="reports">
               <i data-lucide="chart-no-axes-combined"></i><span>Relatórios</span>
             </button>
@@ -106,10 +100,10 @@
           </button>
           <div class="nav-sub" id="navConfigSub">
             <button class="nav-item nav-sub-item" data-view="config-loja">
-              <i data-lucide="store"></i><span>Loja &amp; PDVs</span>
+              <i data-lucide="store"></i><span>Configurar loja</span>
             </button>
             <button class="nav-item nav-sub-item" data-view="config-auditoria">
-              <i data-lucide="cpu"></i><span>Auditoria IA</span>
+              <i data-lucide="cpu"></i><span>Ajustes da IA</span>
             </button>
             <button class="nav-item nav-sub-item" data-view="config-camera">
               <i data-lucide="camera"></i><span>Câmera (DVR)</span>
@@ -124,7 +118,7 @@
               <i data-lucide="users"></i><span>Usuários &amp; Acesso</span>
             </button>
             <button class="nav-item nav-sub-item" data-view="lojas" id="navLojas" style="display:none">
-              <i data-lucide="store"></i><span>Lojas</span>
+              <i data-lucide="building-2"></i><span>Lojas</span>
             </button>
           </div>
         </div>
@@ -221,7 +215,7 @@
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <div class="pipeline-history">
                 <i data-lucide="history"></i>
-                <span>Historico IA</span>
+                <span>Histórico IA</span>
                 <strong id="pipeHistoricoResumo">-</strong>
                 <small id="pipeHistoricoResumoSub">desde sempre</small>
               </div>
@@ -446,6 +440,7 @@
           <div class="cupons-datas">
             <button class="period-button audit-result active" data-result="">Todos</button>
             <button class="period-button audit-result" data-result="OK">Aprovados</button>
+            <button class="period-button audit-result" data-result="ERRO_TECNICO">Erro técnico</button>
             <button class="period-button audit-result" data-result="SUSPEITO">Suspeitos IA</button>
             <button class="period-button audit-result" data-result="SEM_DVR">Sem DVR</button>
             <input type="date" id="auditIaDateInput" class="cupons-select" style="cursor:pointer">
@@ -471,8 +466,8 @@
                   <th>Resultado</th>
                   <th>Horário</th>
                   <th>PDV / Cupom</th>
-                  <th>Análise Gemini</th>
-                  <th>Produto registrado</th>
+                  <th>Análise</th>
+                  <th>Produto</th>
                   <th>Confiança</th>
                   <th></th>
                 </tr>
@@ -857,8 +852,8 @@
                   <th>Tipo</th>
                   <th>Horário</th>
                   <th>PDV / Cupom</th>
-                  <th>Análise Gemini</th>
-                  <th>Produto registrado</th>
+                  <th>Análise</th>
+                  <th>Produto</th>
                   <th>Confiança</th>
                   <th></th>
                 </tr>

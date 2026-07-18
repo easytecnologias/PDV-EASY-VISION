@@ -1,0 +1,15 @@
+services:
+  easy-auditoria-demo:
+    build: .
+    container_name: easy-auditoria-dashboard-demo
+    restart: unless-stopped
+    ports:
+      - "8098:80"
+      - "8099:443"
+    networks:
+      - default
+      - sightops-platform
+
+networks:
+  sightops-platform:
+    external: true

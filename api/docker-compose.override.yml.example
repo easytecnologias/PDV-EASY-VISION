@@ -1,0 +1,7 @@
+services:
+  easy-auditoria-api:
+    environment:
+      # Copie para docker-compose.override.yml (gitignored) e preencha com valores reais.
+      - GROQ_API_KEY=
+      - STREAMER_URL=http://138.99.28.216:8765
+      - STREAMER_TOKEN=

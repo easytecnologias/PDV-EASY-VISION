@@ -457,10 +457,10 @@ h2 { margin-bottom: 4px; font-size: 15px; }
 .table-wrap { overflow-x: hidden; overflow-y: auto; max-height: 560px; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 td, th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alerts-table th:nth-child(1) { width: 9%; }
+.alerts-table th:nth-child(1) { width: 11%; }
 .alerts-table th:nth-child(2) { width: 7%; }
 .alerts-table th:nth-child(3) { width: 9%; }
-.alerts-table th:nth-child(4) { width: 24%; }
+.alerts-table th:nth-child(4) { width: 22%; }
 .alerts-table th:nth-child(5) { width: 22%; }
 .alerts-table th:nth-child(6) { width: 10%; }
 .alerts-table th:nth-child(7) { width: 10%; }
@@ -491,13 +491,18 @@ tbody tr:hover { background: #fbfcfd; }
 .severity.critical i { background: var(--danger); box-shadow: 0 0 0 3px rgba(201,42,42,.1); }
 .severity.warning i { background: #f08c00; }
 .severity.ok i { background: #2f9e44; }
+.severity.info i { background: #d99a3d; }
 .receipt-cell strong, .event-cell strong, .product-cell strong { display: block; font-size: 10px; }
 .receipt-cell span, .event-cell span, .product-cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
 .event-cell { display: flex; align-items: center; gap: 8px; }
 .mini-cctv { width: 44px; height: 30px; border-radius: 4px; object-fit: cover; background: #dce5e8; }
 .confidence { display: flex; align-items: center; gap: 6px; }
 .confidence-meter { width: 42px; height: 4px; overflow: hidden; border-radius: 4px; background: #e9edef; }
-.confidence-meter i { display: block; height: 100%; background: #e03131; }
+.confidence-meter i { display: block; height: 100%; background: #adb5bd; }
+.confidence-meter.conf-ok i { background: #2f9e44; }
+.confidence-meter.conf-info i { background: #d99a3d; }
+.confidence-meter.conf-warning i { background: #f08c00; }
+.confidence-meter.conf-critical i { background: #e03131; }
 .state-badge, .result-badge { display: inline-flex; align-items: center; border-radius: 12px; font-weight: 700; }
 .state-badge { padding: 4px 8px; font-size: 9px; }
 .state-badge.review { color: #a61e1e; background: #fff0f0; }

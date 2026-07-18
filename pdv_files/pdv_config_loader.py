@@ -32,22 +32,29 @@ def fetch(force: bool = False) -> dict:
     api_token = os.environ.get("DASHBOARD_API_TOKEN") or os.environ.get("AUDITORIA_API_TOKEN", "")
     pdv_station = os.environ.get("PDV_STATION", "001")
 
+    # Normaliza URL: converte http://host:8098 → https://host:8099 automaticamente
+    if api_url.startswith("http://") and ":8098" in api_url:
+        api_url = api_url.replace("http://", "https://").replace(":8098", ":8099")
+
     if api_url and api_token:
         try:
-            import requests as _req
-            resp = _req.get(
-                f"{api_url}/api/v1/pdv-config",
+            import ssl as _ssl
+            import urllib.request as _ur
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            req = _ur.Request(
+                f"{api_url}/api/v1/pdv-config?pdv={pdv_station}",
                 headers={"Authorization": f"Bearer {api_token}"},
-                params={"pdv": pdv_station},
-                timeout=5,
             )
-            if resp.status_code == 200:
-                cfg = resp.json()
-                _memory_cache = cfg
-                _memory_ts = now
-                _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-                _CACHE_PATH.write_text(json.dumps(cfg))
-                return cfg
+            with _ur.urlopen(req, timeout=5, context=ctx) as resp:
+                if resp.status == 200:
+                    cfg = json.loads(resp.read())
+                    _memory_cache = cfg
+                    _memory_ts = now
+                    _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    _CACHE_PATH.write_text(json.dumps(cfg))
+                    return cfg
         except Exception:
             pass
 

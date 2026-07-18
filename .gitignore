@@ -9,6 +9,13 @@ venv/
 .env
 *.env
 !*.env.example
+# Override do compose tem chaves reais (Groq/streamer) — so o .example vai pro git
+docker-compose.override.yml
+!docker-compose.override.yml.example
+
+# Backups do fluxo "edita na producao e salva .bak" — nunca versionar
+*.bak
+*.bak_*
 
 # Banco
 *.db

@@ -3204,7 +3204,8 @@ function iniciarViewAuditIa() {
 
   const search = document.getElementById("auditIaSearchInput");
   if (search && !search.dataset.bound) {
-    search.addEventListener("input", renderAuditIa);
+    let _auditSearchT;
+    search.addEventListener("input", () => { clearTimeout(_auditSearchT); _auditSearchT = setTimeout(renderAuditIa, 220); });
     search.dataset.bound = "1";
   }
   const refresh = document.getElementById("btnAuditIaRefresh");
@@ -3241,6 +3242,7 @@ async function carregarAuditIa() {
     let items = await resp.json();
     // Resultado vindo do backend: "result" já traduzido (Confere, Categoria divergente, etc)
     if (auditIaResult === "OK") items = items.filter(i => i.severity === "ok");
+    else if (auditIaResult === "ERRO_TECNICO") items = items.filter(i => i.severity === "info");
     else if (auditIaResult === "SUSPEITO") items = items.filter(ehSuspeitoReal);
     auditIaItems = items;
     _selAuditIa.clear();
@@ -3337,7 +3339,7 @@ async function escalarErroTecnico(id) {
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     _toast("Escalado para suspeito real");
-    await carregarErroTecnico();
+    await carregarAuditIa();
   } catch (e) {
     _toast("Falha ao escalar", "error");
   }
@@ -3424,6 +3426,19 @@ function _atualizarBtnSel(btnId, sel) {
   }
 }
 
+// Limpa o texto cru do Gemini (remove "sim/nao" e os marcadores "PASSO N:" do prompt)
+function _limparAnalise(txt) {
+  txt = String(txt || "");
+  const m = txt.match(/PASSO\s*2:?\s*([\s\S]*?)(?:PASSO\s*3|$)/i);
+  let s = m ? m[1] : txt;
+  s = s.replace(/^(sim|n[aã]o)[\s.,:;-]*/i, "");
+  s = s.replace(/PASSO\s*\d:?/gi, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s || "—";
+}
+
+const AUDIT_MAX_LINHAS = 100;
+
 function renderAuditIa() {
   const tbody = document.getElementById("auditIaTable");
   const resumo = document.getElementById("auditIaResumo");
@@ -3437,13 +3452,15 @@ function renderAuditIa() {
 
   const ok = auditIaItems.filter(i => i.severity === "ok").length;
   const suspeito = auditIaItems.filter(ehSuspeitoReal).length;
+  const visiveis = rows.slice(0, AUDIT_MAX_LINHAS);
   if (resumo) {
-    resumo.innerHTML = `<strong>${rows.length}</strong><small>${ok} aprovados · ${suspeito} suspeitos IA</small>`;
+    const extra = rows.length > AUDIT_MAX_LINHAS ? ` · mostrando ${AUDIT_MAX_LINHAS}` : "";
+    resumo.innerHTML = `<strong>${rows.length}</strong><small>${ok} aprovados · ${suspeito} suspeitos IA${extra}</small>`;
   }
 
-  tbody.innerHTML = rows.length ? rows.map(item => {
-    const sevLabel = item.severity === "critical" ? "Suspeito" : (item.severity === "warning" ? "Atenção" : "Aprovado");
-    const subtitle = (item.analysis || "").replace(/^(PASSO \d:\s*)/i, "").slice(0, 70);
+  tbody.innerHTML = rows.length ? visiveis.map(item => {
+    const sevLabel = item.severity === "critical" ? "Suspeito" : (item.severity === "warning" ? "Atenção" : (item.severity === "info" ? "Erro técnico" : "Aprovado"));
+    const subtitle = _limparAnalise(item.analysis).slice(0, 80);
     const checked = _selAuditIa.has(item.id) ? "checked" : "";
     return `
       <tr class="cupons-row${_selAuditIa.has(item.id) ? " row-selected" : ""}" data-id="${item.id}">
@@ -3453,8 +3470,8 @@ function renderAuditIa() {
         <td class="receipt-cell"><strong>${escapeText(item.pdv || "-")}</strong><span>Cupom ${escapeText(item.receipt || "-")}</span></td>
         <td><div class="event-cell"><img class="mini-cctv" src="${item.imageUrl || 'assets/frame-register.svg'}" loading="lazy" onerror="this.src='assets/frame-register.svg';this.onerror=null" alt=""><div><strong>${escapeText(item.event || "-")}</strong><span>${escapeText(subtitle)}</span></div></div></td>
         <td class="product-cell"><strong>${escapeText(item.product || "-")}</strong><span>${escapeText(item.value || "-")}</span></td>
-        <td><div class="confidence"><span>${item.confidence || 0}%</span><i class="confidence-meter"><i style="width:${item.confidence || 0}%"></i></i></div></td>
-        <td><div class="row-actions"><button data-action="open" title="Revisar"><i data-lucide="scan-search"></i></button><button data-action="video" title="Ver vídeo"><i data-lucide="play"></i></button></div></td>
+        <td><div class="confidence"><span>${item.confidence || 0}%</span><i class="confidence-meter conf-${item.severity || 'ok'}"><i style="width:${item.confidence || 0}%"></i></i></div></td>
+        <td><div class="row-actions">${item.severity === "info" ? `<button data-action="escalar" title="Escalar para suspeito"><i data-lucide="triangle-alert"></i></button>` : ""}<button data-action="open" title="Revisar"><i data-lucide="scan-search"></i></button><button data-action="video" title="Ver vídeo"><i data-lucide="play"></i></button></div></td>
       </tr>`;
   }).join("") : `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:22px">Sem registros para o filtro</td></tr>`;
   tbody.querySelectorAll("tr[data-id]").forEach(row => {
@@ -3467,6 +3484,11 @@ function renderAuditIa() {
         row.classList.toggle("row-selected", cb.checked);
         _atualizarBtnSel("btnAuditIaClear", _selAuditIa);
         _sincronizarSelAll("selAllAuditIa", _selAuditIa, rows);
+        return;
+      }
+      if (event.target.closest("[data-action='escalar']")) {
+        event.stopPropagation();
+        escalarErroTecnico(item.id);
         return;
       }
       if (event.target.closest("[data-action='video']")) {
@@ -4499,7 +4521,7 @@ async function manutRefreshClocks() {
     return;
   }
   try {
-    const r = await fetch(`${STREAMER}/dvr-offset?token=${TOKEN}`);
+    const r = await fetch(`/streamer/dvr-offset?token=${TOKEN}`);
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
 
@@ -4540,7 +4562,7 @@ async function manutSyncDvr() {
   res.style.display = "none";
 
   try {
-    const r = await fetch(`${STREAMER}/dvr-sync?token=${TOKEN}`);
+    const r = await fetch(`/streamer/dvr-sync?token=${TOKEN}`);
     const d = await r.json();
     if (d.ok) {
       const before = d.offset_before !== null ? (d.offset_before > 0 ? "+" : "") + d.offset_before + "s" : "?";
